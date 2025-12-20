@@ -59,6 +59,14 @@ COMET produces detailed logs and cost reports summarizing:
 
 ---
 
+## 👥 Developers
+
+* **Shubham Negi** — [shubhamnegi1990@gmail.com](mailto:shubhamnegi1990@gmail.com)
+* **Manik Singhal** 
+* **Aayush Ankit**
+
+---
+
 ## 📄 Citation
 
 If you use COMET in your research, please cite our paper:
