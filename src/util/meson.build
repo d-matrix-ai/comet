@@ -1,0 +1,1 @@
+sources += files('logger.cpp')
