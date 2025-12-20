@@ -31,7 +31,6 @@ spdlog_dep = spdlog.get_variable('spdlog_dep')
 #fmt_dep = fmt.get_variable('fmt_header_only_dep')
 
 deps += spdlog_dep
-# deps += fmt_dep
 
 executable('comet',
            sources,
