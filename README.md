@@ -57,4 +57,22 @@ COMET produces detailed logs and cost reports summarizing:
 - Latency and throughput  
 - Energy and performance breakdowns  
 
+---
 
+## 📄 Citation
+
+If you use COMET in your research, please cite our paper:
+
+**COMET: A Framework for Modeling Compound Operation Dataflows with Explicit Collectives** *Shubham Negi, Manik Singhal, Aayush Ankit, Sudeep Bhoja, and Kaushik Roy* [arXiv:2509.00599 (2025)](https://arxiv.org/abs/2509.00599)
+
+<details>
+<summary><b>Click to expand BibTeX</b></summary>
+
+```bibtex
+@article{negi2025comet,
+  title={COMET: A Framework for Modeling Compound Operation Dataflows with Explicit Collectives},
+  author={Negi, Shubham and Singhal, Manik and Ankit, Aayush and Bhoja, Sudeep and Roy, Kaushik},
+  journal={arXiv preprint arXiv:2509.00599},
+  year={2025},
+  url={[https://arxiv.org/abs/2509.00599](https://arxiv.org/abs/2509.00599)}
+}
