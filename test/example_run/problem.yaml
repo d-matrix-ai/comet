@@ -1,0 +1,44 @@
+# C=A*B D=softmax(C)
+problem:
+  io:
+    ins: A, B
+    outs: D
+  dimensions: [M,N,K]
+  instance:
+    M: 256 #64
+    N: 1024 #1024
+    K: 4096
+
+  operations:
+  - name: GEMM
+    ins: A,B
+    out: C
+    dimensions: [M,N,K]
+    tensors:
+      - name: A
+        projection: 
+          - [[M]]
+          - [[K]]
+      - name: B
+        projection:
+          - [[K]]
+          - [[N]]
+      - name: C
+        projection:
+          - [[M]]
+          - [[N]]
+        read-write: True
+  - name: softmax
+    ins: C
+    out: D
+    dimensions: [M,N]
+    tensors:
+      - name: C
+        projection:
+          - [[M]]
+          - [[N]]
+      - name: D
+        projection:
+          - [[M]]
+          - [[N]]
+        read-write: True

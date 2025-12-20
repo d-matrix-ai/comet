@@ -1,0 +1,55 @@
+const:
+############# DRAM #############
+  MA_DRAM:  4
+  MD_DRAM:  4
+  N_DRAM_X: 2
+  N_DRAM_Y: 2
+
+############# Global Buffer #############
+  MA_gbuffer: 8 
+  MB_gbuffer: 8 
+  MD_gbuffer: 8 
+
+  KA_gbuffer: 1 
+  KB_gbuffer: 1 
+  KD_gbuffer: 1  
+
+  N_gbuffer_X: 2
+  N_gbuffer_Y: 2
+
+################# MAC Unit #####################
+  M_gbuffer: 2 #8
+  N_gbuffer: 1
+  K_gbuffer: 4
+
+# MAC related constants  
+######## TILE PRIMITIVE ###############  
+  M_TP: 4 
+  N_TP: 64 
+  K_TP: 1024 
+
+######## TILE SIZES ###############  
+  M_TS_A: 4 
+  N_TS_A: 64
+  K_TS_A: 1024 
+
+  M_TS_B: 8 
+  N_TS_B: 64
+  K_TS_B: 1024 
+
+  M_TS_C: 4 
+  N_TS_C: 64
+  K_TS_C: 1024 
+
+  A_precision: 1
+  B_precision: 1
+  C_precision: 4
+
+# SIMD related constants
+  M_SE: 8
+  N_SE: 128 
+  K_SE: 1
+
+  M_SM: 1 
+  N_SM: 8
+  K_SM: 4096

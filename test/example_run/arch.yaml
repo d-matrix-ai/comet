@@ -1,0 +1,186 @@
+ComputeTiles:
+  - name: GEMM 
+    class: mac 
+    attributes:
+      datawidth: 8
+      capacity: 65536 
+      computewidth: 8 
+      computeOpC: 4096 
+      computeLatency: 2 
+      startupLatency: 16
+      compute_energy: 1
+  - name: VSIMD
+    class: simd
+    attributes:
+      capacity: 65536
+      computewidth: 8
+      computeOpC: 64
+      computeLatency: 16
+      compute_energy: 1
+
+MemoryTypes:
+  - name: InputBuffer
+    class: SRAM
+    attributes:
+      width: 128
+      depth: 4096
+      ports: 1
+      doublebuffered: true
+      parent_write_bw: 128
+      child_read_bw: 128
+      parent_read_energy: 1
+      parent_write_energy: 1
+      child_read_energy: 1
+      child_write_energy: 1 
+  - name: WeightBuffer
+    class: SRAM
+    attributes:
+      width: 128
+      depth: 4096
+      ports: 1
+      doublebuffered: true
+      parent_write_bw: 128
+      child_read_bw: 128       
+      parent_read_energy: 1
+      parent_write_energy: 1
+      child_read_energy: 1
+      child_write_energy: 1 
+  - name: OutputBuffer
+    class: SRAM
+    attributes:
+      width: 128
+      depth: 8192
+      doublebuffered: true
+      reduction: true
+      parent_read_bw: 128
+      parent_write_bw: 128
+      child_write_bw: 128
+      child_read_bw: 128
+      link_read_bw: 128
+      link_write_bw: 128
+      parent_child_ports_shared: true
+      parent_read_energy: 1
+      parent_write_energy: 1
+      child_read_energy: 1
+      child_write_energy: 1 
+
+  - name: GBuffer
+    class: SRAM
+    attributes:
+      width: 2048
+      depth: 16384
+      ports: 4
+      reduction: true
+      child_read_bw: 32 
+      child_write_bw: 32 
+      parent_read_bw: 32 
+      parent_write_bw: 32 
+      link_read_bw: 32 
+      link_write_bw: 32 
+      parent_read_energy: 1
+      parent_write_energy: 1
+      child_read_energy: 1
+      child_write_energy: 1 
+
+  - name: DRAM
+    class: DRAM
+    attributes:
+      bw: 1024 
+      parent_read_energy: 1
+      parent_write_energy: 1
+      child_read_energy: 1
+      child_write_energy: 1 
+
+Hierarchy:
+  - name: DRAM
+    type: DRAM
+    connects:
+      - name: GBuffer[0..3]
+        type: GBuffer
+        attributes:
+          meshX: 2
+          meshY: 2
+          link_transfers: true
+          broadcast_support: true
+          connection_type: MeshNetwork
+          hop_latency: 5
+          bw: 64 
+          queuing_delay: 2
+        fills:
+          - name: IBuffer[0..3]
+            type: InputBuffer
+            attributes:
+              meshX: 2
+              meshY: 2
+              connection_type: MeshNetwork
+              hop_latency: 5 # t_router = t_RC + t_VA + t_SA + t_ST + t_L #https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10844846 (page7) no congestion-latency
+              bw: 128
+              broadcast_support: true
+              queuing_delay: 2
+            fills:
+              - name: macengine
+                type: GEMM
+                is_compute: true
+                attributes:
+                  meshX: 1
+                  meshY: 1
+                  connection_type: MeshNetwork
+                  link_transfers: false
+                  hop_latency: 2
+                  bw: 128
+                  queuing_delay: 2
+          - name: WBuffer[0..3]
+            type: WeightBuffer
+            attributes:
+              meshX: 2
+              meshY: 2
+              connection_type: MeshNetwork
+              hop_latency: 5
+              bw: 128
+              broadcast_support: true
+              queuing_delay: 2
+            fills:
+              - name: macengine
+                type: GEMM
+                is_compute: true
+                attributes:
+                  meshX: 1
+                  meshY: 1
+                  connection_type: MeshNetwork
+                  link_transfers: false
+                  hop_latency: 2
+                  bw: 128              
+        drains:
+          - name: OBuffer[0..3]
+            type: OutputBuffer
+            attributes:
+              meshX: 2
+              meshY: 2
+              hop_latency: 5
+              connection_type: MeshNetwork
+              link_transfers: true
+              bw: 128
+              queuing_delay: 2
+            drains:
+              - name: macengine
+                type: GEMM
+                is_compute: true
+                attributes:
+                  meshX: 1
+                  meshY: 1
+                  link_transfers: false
+                  connection_type: MeshNetwork
+                  hop_latency: 1
+                  bw: 128
+            connects:
+              - name: simdengine
+                type: VSIMD
+                is_compute: true
+                attributes:
+                  meshX: 1
+                  meshY: 1
+                  link_transfers: false
+                  connection_type: MeshNetwork
+                  hop_latency: 1
+                  bw: 128                  
+                           

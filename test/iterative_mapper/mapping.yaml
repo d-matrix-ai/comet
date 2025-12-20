@@ -1,0 +1,343 @@
+# Matmul Matmul A(MxK) * B(KxN) --> C(MxN) --SoftMax--> D(MxN) (example: 128x64 64x256 --> 128x256 --> SoftMax ----> 128x256)
+# We introduce three tile attributes for fusion. DataMovement_Tile, MatMul_Tile, ColOp_Tile and SIMD_Tile
+
+mapping:
+ node_type:   DataMovement_Tile
+ target:      [DRAM,DRAM,DRAM]
+ type:        temporal
+ tensors:     [A,B,H]
+ precision:   [8,8,8]
+ rmw:         [false, false, false]
+ factors:
+  - M=[M_A_DRAM_temporal,M_A_DRAM_temporal,M_H_DRAM_temporal] N=[1,1,1] K=[1,1,1] 
+ permutation: KNM #inner to outer loop {1,2,0}
+ wb_output:   [false,false,true] #helps to know which child will write data back to parent
+ tag:         [GEMM,GEMM,DIV]
+ child:       [GB,GB,GB]
+
+ subtree:
+ - node_type:   DataMovement_Tile
+   target:      [DRAM,DRAM,DRAM]
+   type:        spatial
+   tensors:     [A,B,H]
+   precision:   [8,8,8]
+   rmw:         [false, false, false]
+   wb_output:  [false,false,true]
+   tag:         [GEMM,GEMM,DIV]
+   factors:
+     - M=[1,1,1] N=[N_DRAM_spatial_X,N_DRAM_spatial_X,N_DRAM_spatial_X] K=[1,1,1] # INNER LOOP
+     - M=[1,1,1] N=[N_DRAM_spatial_Y,N_DRAM_spatial_Y,N_DRAM_spatial_Y] K=[1,1,1] # OUTER LOOP
+   permutation: KNM
+   child:       [GB,GB,GB]
+
+   subtree:
+   - node_type:   DataMovement_Tile
+     target:      [GB,GB,GB,GB,GB,GB,GB]
+     type:        temporal
+     tensors:     [A,B,D,D,F,F,H]
+     precision:   [8,8,8,8,8,8,8]
+     rmw:         [false, false, false, false, false, false, false]
+     wb_output:   [false, false, false, false, false, false, true]
+     tag:         [GEMM,GEMM,ROWMAX,SUB,EXP1,ROWSUM,DIV]
+     factors:     
+       - M=[M_A_GB_temporal,M_D_GB_temporal, M_A_GB_temporal, M_D_GB_temporal, M_F_GB_temporal, M_F_GB_temporal, M_H_GB_temporal] N=[N_A_GB_temporal,N_A_GB_temporal,N_A_GB_temporal,N_A_GB_temporal,N_A_GB_temporal,N_A_GB_temporal,N_A_GB_temporal] K= [K_A_GB_temporal,K_A_GB_temporal,K_A_GB_temporal,K_A_GB_temporal,K_A_GB_temporal,K_A_GB_temporal,K_A_GB_temporal] #[1,1,1,1,1]
+     permutation: KNM #inner to outer loop
+     child:       [IB,WB,OB,OB,OB,OB,OB]     
+
+     subtree: 
+     - node_type: inter_tile_binding #Binding1
+       binding:     sequential 
+
+     - node_type:   DataMovement_Tile
+       target:      [GB,GB,GB]
+       type:        spatial
+       tensors:     [A,B,C]
+       precision:   [8,8,8]
+       rmw:         [false, false, false]
+       wb_output:   [false, false, false]
+       tag:         [GEMM,GEMM,GEMM]
+       factors:     
+         - M=[1,1,1] N=[N_GB_spatial_X,N_GB_spatial_X,N_GB_spatial_X] K=[1,1,1] #depends on number of tiles, list of list because of spatial dimension is a 2D dimension INNER LOOP
+         - M=[1,1,1] N=[N_GB_spatial_Y,N_GB_spatial_Y,N_GB_spatial_Y] K=[1,1,1] #depends on number of tiles, list of list because of spatial dimension is a 2D dimension OUTER LOOP
+       permutation: KNM
+       child:       [IB,WB,OB]       
+
+       subtree: 
+       - node_type:    DataMovement_Tile
+         target:       [IB,WB,OB]
+         type:         temporal
+         tensors:      [A,B,C]
+         precision:   [8,8,8]
+         rmw:         [false, false, false]
+         tag:         [GEMM,GEMM,GEMM]
+         wb_output:   [false, false, true]
+         factors:      
+           - M=[M_Core_temporal,M_Core_temporal,M_Core_temporal] N=[N_Core_temporal,N_Core_temporal,N_Core_temporal] K=[K_Core_temporal, K_Core_temporal, K_Core_temporal]
+         permutation:  MKN #KMN #MKN #compute_permutation #MKN
+         child:        [GEMMEngine,GEMMEngine,GEMMEngine]   
+
+         subtree:
+         - node_type:     Operation #op_tile type: gemm type: softmax
+           type:          GEMM  # type to connect to arch/topology
+           tensors:       [A,B,C]
+           TilePrimitive: M=M_Compute N=N_Compute K=K_Compute # will be either less than or equal to the max matmul that we can run: for Corsair it is 64x64x512 (MxNxK) with different PPR8,4,2,1
+           TileSteps:
+             A:           M=M_Compute N=N_Compute K=K_Compute
+             B:           M=M_Compute N=N_Compute K=K_Compute #M=M_TS_B N=N_TS_B K=K_TS_B
+             C:           M=M_Compute N=N_Compute K=K_Compute #M=M_TS_C N=N_TS_C K=K_TS_C
+           Scale:
+             A:           A_precision
+             B:           B_precision
+             C:           C_precision  
+           name:          GEMM #gemm1, gemm2 #connet to problem   
+           compute_attributes:
+             reduction_dimensions:
+               - red_dim #K
+             reduction_factors:
+               - red_factor #1024
+             rmw: true
+             specd: true
+          #  child:         OB  
+
+     - node_type: inter_tile_binding #Binding2
+       binding:     sequential  
+
+     - node_type:   DataMovement_Tile
+       target:      [GB]
+       type:        spatial
+       tensors:     [D]
+       precision:   [16]
+       rmw:         [false]
+       wb_output:   [true]
+       tag:         [ROWMAX]
+       factors:     
+         - M=[1] N=[N_GB_spatial_X] K=[1] #mapped on only a single node
+         - M=[1] N=[N_GB_spatial_Y] K=[1]
+       permutation: MKN #inner to outer loop
+       child:       [OB]    
+       
+       subtree: 
+       - node_type:    DataMovement_Tile
+         target:       [OB,OB]
+         type:         temporal
+         tensors:      [C,D]
+         precision:   [16,16]
+         rmw:         [false, false]
+         wb_output:   [false, true]
+         tag:         [ROWMAX,ROWMAX]
+         factors:      
+           - M=[M_SE, M_SE] N=[N_SE, N_SE] K=[K_SE, K_SE]
+         permutation:  MKN #KNM
+         child:        [SE, SE]   
+         
+         subtree:
+         - node_type:         Operation
+           type:              rowmax # type to connect to parser
+           tensors:           [C,D]
+           name:              ROWMAX #connet to problem  
+           TilePrimitive:      M=M_SM N=N_SM K=K_SM
+           TileSteps:                   
+             C:               M=M_SM N=N_SM K=K_SM
+             D:               M=M_SM N=N_SM K=K_SM
+           compute_attributes:
+             reduction_dimensions:
+               - red_dim_simd #K
+             reduction_factors:
+               - red_dim_simd_val #1024
+             rmw: true
+             specd: true
+
+     - node_type: inter_tile_binding #Binding3
+       binding:     sequential 
+
+     - node_type:    CollectiveOperation
+       tag:          colop1              # used for indexing the stride_tilestep 
+       target:       GB                  # just to know what level in memory is this collective operation node at in the tree
+       type:         allreduce
+       reduction_op:    max
+       dimension:    N 
+       src:          [GB]            #where to collect the data from
+       dest:         [GB]                 #where to save the output to, list because in all gather we will have to save to multiple OBs
+       wb_output:    false
+       in_tensor:    D
+       out_tensor:   D
+       precision:    16
+       child:        GB
+
+     - node_type: inter_tile_binding #Binding4
+       binding:     sequential 
+
+     - node_type:   DataMovement_Tile
+       target:      [GB,GB]
+       type:        spatial
+       tensors:     [D,F]
+       precision:   [16,16]
+       rmw:         [false,false]
+       wb_output:   [false,true]
+       tag:         [SUB,EXP1]
+       factors:     
+         - M=[1,1] N=[N_GB_spatial_X,N_GB_spatial_X] K=[1,1] #mapped on only a single node
+         - M=[1,1] N=[N_GB_spatial_Y,N_GB_spatial_Y] K=[1,1]
+       permutation: KNM #inner to outer loop
+       child:       [OB,OB]         
+      
+       subtree:
+       - node_type: inter_tile_binding
+         binding:     sequential  
+
+       - node_type:    DataMovement_Tile
+         target:       [OB,OB,OB]
+         type:         temporal
+         tensors:      [C,D,E]
+         precision:   [16,16,16]
+         rmw:         [false, false,false]
+         wb_output:   [false, false, true]
+         tag:         [SUB,SUB,SUB]
+         factors:      
+           - M=[M_SE, M_SE, M_SE] N=[N_SE, N_SE, N_SE] K=[K_SE, K_SE, K_SE]
+         permutation:  MKN
+         child:        [SE,SE,SE]   
+         
+         subtree:
+         - node_type:         Operation
+           type:              add # type to connect to parser
+           tensors:           [C,D,E]
+           name:              SUB #connet to problem  
+           TilePrimitive:      M=M_SM N=N_SM K=K_SM
+           TileSteps:                   
+             C:               M=M_SM N=N_SM K=K_SM
+             D:               M=M_SM N=N_SM K=K_SM             
+             E:               M=M_SM N=N_SM K=K_SM             
+           compute_attributes:
+             reduction_dimensions:
+               - red_dim_simd #K
+             reduction_factors:
+               - red_dim_simd_val #1024
+             rmw: true
+             specd: true
+
+       - node_type:    DataMovement_Tile
+         target:       [OB,OB]
+         type:         temporal
+         tensors:      [E,F]
+         precision:   [16,16]
+         rmw:         [false,false]
+         wb_output:   [false, true]
+         tag:         [EXP1,EXP1]
+         factors:      
+           - M=[M_SE, M_SE] N=[N_SE, N_SE] K=[K_SE, K_SE]
+         permutation:  MKN #KNM
+         child:        [SE,SE]   
+         
+         subtree:
+         - node_type:         Operation
+           type:              exp # type to connect to parser
+           tensors:           [E,F]
+           name:              EXP1 #connet to problem  
+           TilePrimitive:      M=M_SM N=N_SM K=K_SM
+           TileSteps:                   
+             E:               M=M_SM N=N_SM K=K_SM
+             F:               M=M_SM N=N_SM K=K_SM
+           compute_attributes:
+             reduction_dimensions:
+               - red_dim_simd #K
+             reduction_factors:
+               - red_dim_simd_val #1024
+             rmw: true
+             specd: true
+
+     - node_type: inter_tile_binding #Binding5
+       binding:     sequential 
+
+     - node_type:    CollectiveOperation
+       tag:          colop2              # used for indexing the stride_tilestep 
+       target:       GB                  # just to know what level in memory is this collective operation node at in the tree
+       type:         allreduce
+       reduction_op:    add
+       dimension:    N 
+       src:          [GB]            #where to collect the data from
+       dest:         [GB]                 #where to save the output to, list because in all gather we will have to save to multiple OBs
+       wb_output:    false
+       in_tensor:    F
+       out_tensor:   F
+       precision:    16
+       child:        GB
+
+     - node_type:   DataMovement_Tile
+       target:      [GB,GB]
+       type:        spatial
+       tensors:     [F,H]
+       precision:   [16,16]
+       rmw:         [false, false]
+       wb_output:   [false, true]
+       tag:         [ROWSUM,DIV]
+       factors:     
+         - M=[1,1] N=[N_GB_spatial_X,N_GB_spatial_X] K=[1,1] #mapped on only a single node
+         - M=[1,1] N=[N_GB_spatial_Y,N_GB_spatial_Y] K=[1,1]
+       permutation: MKN #inner to outer loop
+       child:       [OB,OB]    
+       
+       subtree:
+       - node_type: inter_tile_binding
+         binding:     sequential  
+               
+       - node_type:    DataMovement_Tile
+         target:       [OB,OB]
+         type:         temporal
+         tensors:      [F,G]
+         precision:   [16,16]
+         rmw:         [false,false]
+         wb_output:   [false, true]
+         tag:         [ROWSUM,ROWSUM]
+         factors:      
+           - M=[M_SE, M_SE] N=[N_SE, N_SE] K=[K_SE, K_SE]
+         permutation:  MKN
+         child:        [SE,SE]   
+         
+         subtree:
+         - node_type:         Operation
+           type:              rowsum # type to connect to parser
+           tensors:           [F,G]
+           name:              ROWSUM #connet to problem  
+           TilePrimitive:      M=M_SM N=N_SM K=K_SM
+           TileSteps:                   
+             F:               M=M_SM N=N_SM K=K_SM
+             G:               M=M_SM N=N_SM K=K_SM    
+           compute_attributes:
+             reduction_dimensions:
+               - red_dim_simd #K
+             reduction_factors:
+               - red_dim_simd_val #1024
+             rmw: true
+             specd: true
+
+       - node_type:    DataMovement_Tile
+         target:       [OB,OB,OB]
+         type:         temporal
+         tensors:      [F,G,H]
+         precision:   [16,16,16]
+         rmw:         [false,false,false]
+         wb_output:   [false, false,true]
+         tag:         [DIV,DIV,DIV]
+         factors:      
+           - M=[M_SE, M_SE, M_SE] N=[N_SE, N_SE, N_SE] K=[K_SE, K_SE, K_SE]
+         permutation:  MKN
+         child:        [SE,SE,SE]   
+         
+         subtree:
+         - node_type:         Operation
+           type:              div # type to connect to parser
+           tensors:           [F,G,H]
+           name:              DIV #connet to problem  
+           TilePrimitive:      M=M_SM N=N_SM K=K_SM
+           TileSteps:                   
+             F:               M=M_SM N=N_SM K=K_SM
+             G:               M=M_SM N=N_SM K=K_SM                 
+             H:               M=M_SM N=N_SM K=K_SM              
+           compute_attributes:
+             reduction_dimensions:
+               - red_dim_simd #K
+             reduction_factors:
+               - red_dim_simd_val #1024
+             rmw: true
+             specd: true             

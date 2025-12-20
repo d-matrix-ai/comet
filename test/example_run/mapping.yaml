@@ -1,0 +1,138 @@
+# Matmul Matmul A(MxK) * B(KxN) --> C(MxN) --SoftMax--> D(MxN) (example: 128x64 64x256 --> 128x256 --> SoftMax ----> 128x256)
+# We introduce three tile attributes for fusion. DataMovement_Tile, MatMul_Tile, ColOp_Tile and SIMD_Tile
+
+mapping:
+ node_type:   DataMovement_Tile
+ target:      [DRAM,DRAM,DRAM]
+ type:        temporal
+ tensors:     [A,B,D]
+ precision:   [8,8,8]
+ rmw:         [false, false, false]
+ factors:
+  - M=[MA_DRAM,MA_DRAM,MD_DRAM] N=[1,1,1] K=[1,1,1] # dimension=[facA, facB, facD] #{0:[] 1:[] 2:[]}
+ permutation: MKN #inner to outer loop {1,2,0}
+ wb_output:   [false,false,true] #helps to know which child will write data back to parent
+ tag:         [GEMM,GEMM,softmax]
+ child:       [GBuffer,GBuffer,GBuffer]
+
+ subtree:
+ - node_type:   DataMovement_Tile
+   target:      [DRAM,DRAM,DRAM]
+   type:        spatial
+   tensors:     [A,B,D]
+   precision:   [8,8,8]
+   rmw:         [false, false, false]
+   wb_output:  [false,false,true]
+   tag:         [GEMM,GEMM,softmax]
+   factors:
+     - M=[1,1,1] N=[N_DRAM_X,N_DRAM_X,1] K=[1,1,1] # INNER LOOP
+     - M=[1,1,1] N=[N_DRAM_Y,N_DRAM_Y,1] K=[1,1,1] # OUTER LOOP
+   permutation: MKN
+   child:       [GBuffer,GBuffer,GBuffer]
+
+   subtree:
+   - node_type:   DataMovement_Tile
+     target:      [GBuffer,GBuffer,GBuffer]
+     type:        temporal
+     tensors:     [A,B,D]
+     precision:   [8,8,8]
+     rmw:         [false, false, false]
+     wb_output:   [false, false, false]
+     tag:         [GEMM,GEMM,softmax]
+     factors:     
+       - M=[MA_gbuffer,MB_gbuffer,MD_gbuffer] N=[1,1,1] K= [KA_gbuffer,KB_gbuffer,KD_gbuffer] #[1,1,1,1,1]
+     permutation: MKN #inner to outer loop
+     child:       [IBuffer,WBuffer,OBuffer]     
+
+     subtree: 
+     - node_type:   DataMovement_Tile
+       target:      [GBuffer,GBuffer,GBuffer]
+       type:        spatial
+       tensors:     [A,B,D]
+       precision:   [8,8,8]
+       rmw:         [false, false, false]
+       wb_output:   [false, false, false]
+       tag:         [GEMM,GEMM,softmax]
+       factors:     
+         - M=[1,1,1] N=[N_gbuffer_X,N_gbuffer_X,1] K=[1,1,1] 
+         - M=[1,1,1] N=[N_gbuffer_Y,N_gbuffer_Y,1] K=[1,1,1] 
+       permutation: MKN
+       child:       [IBuffer,WBuffer,OBuffer]       
+
+       subtree: 
+       - node_type: inter_tile_binding
+         binding:     sequential
+
+       - node_type:    DataMovement_Tile
+         target:       [IBuffer,WBuffer,OBuffer]
+         type:         temporal
+         tensors:      [A,B,C]
+         precision:   [8,8,8]
+         rmw:         [false, false, false]
+         tag:         [GEMM,GEMM,GEMM]
+         wb_output:   [false, false, true]
+         factors:      
+           - M=[M_gbuffer,1,M_gbuffer] N=[1,N_gbuffer,N_gbuffer] K=[K_gbuffer, K_gbuffer, K_gbuffer]
+         permutation:  MKN
+         child:        [macengine,macengine,macengine]   
+
+         subtree:
+         - node_type:     Operation #op_tile type: gemm type: softmax
+           type:          GEMM  # type to connect to arch/topology
+           tensors:       [A,B,C]
+           TilePrimitive: M=M_TP N=N_TP K=K_TP
+           TileSteps:
+             A:           M=M_TS_A N=N_TS_A K=K_TS_A
+             B:           M=M_TS_B N=N_TS_B K=K_TS_B
+             C:           M=M_TS_C N=N_TS_C K=K_TS_C
+           Scale:
+             A:           A_precision
+             B:           B_precision
+             C:           C_precision  
+           name:          GEMM #gemm1, gemm2 #connet to problem   
+           compute_attributes:
+             reduction_dimensions:
+               - K
+             reduction_factors:
+               - 1024
+             rmw: true
+             specd: true
+
+       - node_type: inter_tile_binding
+         binding:     sequential 
+
+       - node_type:    CollectiveOperation
+         tag:          colop1              # used for indexing the stride_tilestep 
+         target:       OBuffer                  # just to know what level in memory is this collective operation node at in the tree
+         type:         gather
+         dimension:    N 
+         src:          [GBuffer,OBuffer]            
+         dest:         [OBuffer]                
+         wb_output:    false
+         in_tensor:    C
+         out_tensor:   C
+         precision:    8
+         child:        OBuffer
+
+       - node_type:    DataMovement_Tile
+         target:       [OBuffer,OBuffer]
+         type:         temporal
+         tensors:      [C,D]
+         precision:   [16,16]
+         rmw:         [false, false]
+         wb_output:   [false, true]
+         tag:         [softmax, softmax]
+         factors:      
+           - M=[M_SE, M_SE] N=[N_SE,N_SE] K=[K_SE,K_SE]
+         permutation:  MKN #NM #MKN
+         child:        [simdengine, simdengine]   
+
+         subtree:
+         - node_type:         Operation
+           type:              Softmax # type to connect to arch/topology
+           tensors:           [C,D]
+           name:              softmax #connet to problem  
+           TilePrimitive:      M=M_SM N=N_SM
+           TileSteps:                   
+             C:               M=M_SM N=N_SM K=K_SM
+             D:               M=M_SM N=N_SM K=K_SM

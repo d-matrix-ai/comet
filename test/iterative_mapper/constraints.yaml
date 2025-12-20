@@ -1,0 +1,74 @@
+mapping_constraints:
+
+  - target: DRAM
+    type: temporal
+    tensor: A
+    factors:
+      - N=1 ND=1 K=1
+
+  - target: DRAM
+    type: spatial
+    tensor: A
+    factors:
+      - N=2 M=1 K=1 ND=1
+      - N=2 M=1 K=1 ND=1
+
+  - target: GB
+    type: temporal
+    tensor: A
+    factors: 
+      - N=1 ND=1 K=1
+  
+  - target: GB
+    type: spatial
+    tensor: A
+    factors:
+      - N=2 M=1 K=1 ND=1
+      - N=2 M=1 K=1 ND=1
+
+  # - target: 
+
+
+
+
+  # - target: DRAM
+  #   type: spatial
+  #   tensor: A
+  #   factors:
+  #     - N=2
+  #     - N=2
+  # - target: DRAM
+  #   type: spatial
+  #   tensor: A
+  #   factors:
+  #     - M=1
+  #     - M=1
+
+  # - target: DRAM
+  #   type: spatial
+  #   tensor: A
+  #   factors:
+  #     - K=1
+  #     - K=1
+
+
+
+  # - target: GB
+  #   type: spatial
+  #   tensor: A
+  #   factors:
+  #     - N=2
+  #     - N=2
+  # - target: GB
+  #   type: spatial
+  #   tensor: A
+  #   factors:
+  #     - M=1
+  #     - M=1  
+
+  # - target: GB
+  #   type: spatial
+  #   tensor: A
+  #   factors:
+  #     - K=1
+  #     - K=1  

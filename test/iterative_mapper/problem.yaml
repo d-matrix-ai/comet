@@ -1,0 +1,107 @@
+# C=A*B D=softmax(C)
+problem:
+  io:
+    ins: A,B
+    outs: H
+  dimensions: [M,N,K]
+  instance:
+    M: M
+    N: N
+    K: K
+
+  operations:
+  - name: GEMM
+    ins: A,B
+    out: C
+    dimensions: [M,N,K]
+    tensors:
+      - name: A
+        projection: 
+          - [[M]]
+          - [[K]]
+      - name: B
+        projection:
+          - [[K]]
+          - [[N]]
+      - name: C
+        projection:
+          - [[M]]
+          - [[N]]
+        read-write: True
+  - name: ROWMAX
+    ins: C
+    out: D
+    dimensions: [M,N,K]
+    tensors:
+      - name: C
+        projection:
+          - [[M]]
+          - [[N]]
+      - name: D
+        projection:
+          - [[M]]       
+        read-write: true
+
+  - name: SUB
+    ins: C,D
+    out: E
+    dimensions: [M,N,K]
+    tensors:
+      - name: C
+        projection:
+          - [[M]]
+          - [[N]]
+      - name: D
+        projection:
+          - [[M]] 
+      - name: E
+        projection:
+          - [[M]]
+          - [[N]]                 
+        read-write: true        
+
+  - name: EXP1
+    ins: E
+    out: F
+    dimensions: [M,N,K]
+    tensors:
+      - name: E
+        projection:
+          - [[M]]
+          - [[N]]
+      - name: F
+        projection:
+          - [[M]]   
+          - [[N]]               
+        read-write: true     
+  - name: ROWSUM
+    ins: F
+    out: G
+    dimensions: [M,N,K]
+    tensors:
+      - name: F
+        projection:
+          - [[M]]
+          - [[N]]
+      - name: G
+        projection:
+          - [[M]]              
+        read-write: true   
+
+  - name: DIV
+    ins: F,G
+    out: H
+    dimensions: [M,N,K]
+    tensors:
+      - name: F
+        projection:
+          - [[M]]
+          - [[N]]
+      - name: G
+        projection:
+          - [[M]]      
+      - name: H
+        projection:
+          - [[M]]
+          - [[N]]                     
+        read-write: true                               

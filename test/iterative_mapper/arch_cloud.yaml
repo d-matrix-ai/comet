@@ -1,0 +1,197 @@
+ComputeTiles:
+  - name: SystolicArray #SystolicArray 
+    class: mac
+    attributes:
+      datawidth: 8
+      capacity: 65536 # define in number of data widths if ANY
+      computeWidth: 8 # define in bits
+      computeOpC: 4096 # Number of processing units in tile
+      computeLatency: 1 #8 # latency per op
+      startupLatency: 16
+      compute_energy: 1 # energy per op
+      array_rows: 32
+      array_cols: 32  
+      num_sa_rows: 8
+      num_sa_cols: 8    
+  - name: VSIMD
+    class: simd
+    attributes:
+      capacity: 65536
+      computeWidth: 16
+      computeOpC: 64
+      computeLatency: 16
+
+MemoryTypes:
+  - name: InputBuffer
+    class: SRAM
+    attributes:
+      width: 4096 #512 32KB
+      depth: 8
+      ports: 1
+      doublebuffered: true
+      parent_write_bw: 4096
+      child_read_bw: 4096
+      parent_read_energy: 47 #pJ from cacti
+      parent_write_energy: 60
+      child_read_energy: 47
+      child_write_energy: 60
+
+  - name: WeightBuffer
+    class: SRAM
+    attributes:
+      width: 4096 #512 #32KB memory
+      depth: 8 #8
+      ports: 1
+      doublebuffered: true
+      parent_write_bw: 4096
+      child_read_bw: 4096
+      parent_read_energy: 47 #pJ from cacti
+      parent_write_energy: 60
+      child_read_energy: 47
+      child_write_energy: 60
+
+
+  - name: OutputBuffer
+    class: SRAM
+    attributes:
+      width: 4096 #512
+      depth: 32 #8
+      doublebuffered: true
+      reduction: true
+      parent_read_bw: 4096
+      parent_write_bw: 4096
+      child_write_bw: 4096
+      child_read_bw: 4096
+      link_read_bw: 256 #64 #4 #512
+      link_write_bw: 256 #64 #4 #512
+      parent_read_energy: 72 #pJ from cacti
+      parent_write_energy: 129
+      child_read_energy: 72
+      child_write_energy: 129  
+      parent_child_ports_shared: true
+  - name: GBuffer
+    class: SRAM
+    attributes:
+      width: 4096
+      depth: 2048 #8MB
+      ports: 1 #4
+      reduction: true
+      child_read_bw: 2048 #1024
+      child_write_bw: 2048 #1024
+      parent_read_bw: 2048 #1024
+      parent_write_bw: 2048 #1024
+      link_read_bw: 256 #64 #4 #512 #256
+      link_write_bw: 256 #64 #4 #512 #256
+      parent_read_energy: 994 #55 #47 #pJ from cacti
+      parent_write_energy: 1111 #83 #60
+      child_read_energy: 994 #55 #47
+      child_write_energy: 1111 #83 #60 
+  - name: DRAM
+    class: DRAM
+    attributes:
+      bw: 50 #25 
+      width: 8 #8 bytes
+      parent_read_energy: 800   #Energy from DRAMPower for 1 RD and 1 WR = 2.832952823076923e-09 Joules, divide by 2 to get it for 1 RD or 1 WR
+      parent_write_energy: 800
+      child_read_energy: 800
+      child_write_energy: 800 #pJ
+
+Hierarchy:
+  - name: DRAM
+    type: DRAM
+    connects:
+      - name: GB[0..15]
+        type: GBuffer
+        attributes:
+          meshX: 4
+          meshY: 4
+          link_transfers: true
+          broadcast_support: true
+          connection_type: MeshNetwork
+          hop_latency: 5 # t_router = t_RC + t_VA + t_SA + t_ST + t_L #https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=10844846 (page7) no congestion-latency
+          bw: 256 #4 #128 #512 #(Dont know how feasible a 512 B wide network on chip is)
+          queuing_delay: 2
+          channel_width: 2048 # number of links, 1b/cycle/link in HISIM #refer HSIM paper in one note, 
+
+        fills:
+          - name: IB[0..15]
+            type: InputBuffer
+            attributes:
+              meshX: 4
+              meshY: 4
+              connection_type: MeshNetwork
+              hop_latency: 5
+              bw: 256 #4
+              broadcast_support: true
+              queuing_delay: 2
+              channel_width: 2048 #bytes
+            fills:
+              - name: GEMMEngine
+                type: SystolicArray
+                is_compute: true
+                attributes:
+                  meshX: 1
+                  meshY: 1
+                  connection_type: MeshNetwork
+                  link_transfers: false
+                  hop_latency: 1
+                  bw: 256 #4
+          - name: WB[0..15]
+            type: WeightBuffer
+            attributes:
+              meshX: 4
+              meshY: 4
+              connection_type: MeshNetwork
+              hop_latency: 5
+              bw: 256 #4
+              queuing_delay: 2
+              broadcast_support: true
+              channel_width: 2048 #bytes
+
+            fills:
+              - name: GEMMEngine
+                type: SystolicArray
+                is_compute: true
+                attributes:
+                  meshX: 1
+                  meshY: 1
+                  connection_type: MeshNetwork
+                  link_transfers: false
+                  hop_latency: 1
+                  bw: 256           
+        drains:
+          - name: OB[0..15]
+            type: OutputBuffer
+            attributes:
+              meshX: 4
+              meshY: 4
+              hop_latency: 5
+              connection_type: MeshNetwork
+              link_transfers: true
+              queuing_delay: 2
+              bw: 256 #4
+              channel_width: 2048 # number of links, 1b/cycle/link in HISIM #refer HSIM paper in one note,
+
+            drains:
+              - name: GEMMEngine
+                type: SystolicArray
+                is_compute: true
+                attributes:
+                  meshX: 1
+                  meshY: 1
+                  connection_type: MeshNetwork
+                  link_transfers: false
+                  hop_latency: 1
+                  bw: 256 #4
+            connects:
+              - name: SE #used in mapping file
+                type: VSIMD
+                is_compute: true
+                attributes:
+                  meshX: 1
+                  meshY: 1
+                  link_transfers: false
+                  connection_type: MeshNetwork
+                  hop_latency: 1
+                  bw: 256 #4                  
+                           
