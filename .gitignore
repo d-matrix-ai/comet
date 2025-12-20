@@ -1,0 +1,43 @@
+# Build directories
+/build/
+*/build/
+/configs/
+
+#Object and binary files
+*.o
+*.obj
+*.so
+*.a
+*.exe
+*.out
+*.txt
+
+# Python cache (if using helper scripts)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+#cpp precompiled files
+*.hpp.gch
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+
+# Editor and OS-specific files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated traces or reports (optional)
+*.trace
+*.report
+*.csv
+*.json
+
+# Local environment or configuration
+.env
+
