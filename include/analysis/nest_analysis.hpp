@@ -36,7 +36,7 @@ namespace analysis{
 
     // using analysis::TotalCost;
 
-    // use inline for function definitions in header file. This ensures that there will only be one instasnce of the function, even if the header is included in multiple translation units
+    // use inline for function definitions in header file. This ensures that there will only be one instance of the function, even if the header is included in multiple translation units
     // other way is to define this function in the cpp file this ensures that there is only one definition of this function
     inline bool isStringInVector(const std::vector<std::string>& vec, const std::string& str){
         return std::find(vec.begin(), vec.end(), str) != vec.end();

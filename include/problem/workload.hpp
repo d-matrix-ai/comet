@@ -45,7 +45,7 @@ namespace problem {
       std::string getTensorName(TensorID tens_id) {return tensorNames_.at(tens_id);}
       DimensionID getDimID(std::string dimension_name) const;
       const std::string& ToString();
-      DimSizeExpression getTensorSize(TensorID tens_id) const {return DimSizes_;} // current usecaseis just to get full dimension size expression -> analysis will need to understand projection
+      DimSizeExpression getTensorSize(TensorID tens_id) const {return DimSizes_;} // current use case is just to get full dimension size expression -> analysis will need to understand projection
       DimSizeExpression getInstanceSize() const {return DimSizes_;}
       std::map<std::string, DimensionID> getDimensionMap(){return dimNamesToDimensionID_;}
       std::map<TensorID, std::string> get_TensorNameMap(){return tensorNames_;}
